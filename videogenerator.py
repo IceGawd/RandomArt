@@ -19,12 +19,14 @@ pattern = [
 	["+", 6, 2],		# blending = smooth gradients
 	["*", 1, 2],		# rare contrast spikes
 	["pow", 1, 3],		# rare intensity shaping
-	["sin", 8, 1],		# waves are king
-	["cos", 8, 1],		# phase-shifted waves
+	["sin", 12, 1],		# waves are king
+	["cos", 12, 1],		# phase-shifted waves
 	["inv", 2, 1],		# occasional color inversion for motion
 	["smooth", 4, 1],	# smoothstep (soft contrast curve)
 	["mix", 4, 3],		# lerp blend (weighted blend instead of average)
 	["abs", 4, 1],		# mirrored waves, great for ocean ripples
+	["rad", 12, 2], 
+	["ang", 0, 2]
 ]
 
 # The base parameters and frequencies
@@ -32,8 +34,9 @@ baseInfo = [
 	["x", 3],
 	["y", 3],
 	["r", 3],
+	["a", 2], 
 	["t", 2],
-	["0", 1], 
+	["0", 0], 
 	["1", 3]
 ]
 
@@ -69,10 +72,13 @@ class Pattern(object):
 		if self.name == "base":							# Gives a raw pixel value based on either x, y, or t
 			l = []
 			r = np.sqrt(2 * ((x - 0.5) ** 2 + (y - 0.5) ** 2))
+			a = np.arctan2(y - 0.5, x - 0.5) / (2 * np.pi) + 0.5
+			angle_wave = (1 - np.cos(2 * np.pi * a)) / 2
 			d = {
 				"x": x,
 				"y": y,
 				"r": r,
+				"a": angle_wave, 
 				"t": t,
 				"0": t * 0,								# t * 0 because we want an np.zeros of size t
 				"1": np.ones_like(t)
@@ -106,13 +112,13 @@ class Pattern(object):
 			b = self.args[1].apply(x, y, t)
 			w = self.args[2].apply(x, y, t)
 			return a * w + b * (1 - w)
-		elif self.name == "mix":
-			a = self.args[0].apply(x, y, t)
-			b = self.args[1].apply(x, y, t)
-			w = self.args[2].apply(x, y, t)
-			return a * w + b * (1 - w)
 		elif self.name == "abs":
 			return np.abs(self.args[0].apply(x, y, t) - 0.5) * 2
+		elif self.name == "rad":
+			return np.sqrt(2 * ((self.args[0].apply(x, y, t) - 0.5) ** 2 + (self.args[1].apply(x, y, t) - 0.5) ** 2))
+		elif self.name == "ang":
+			a = np.arctan2(self.args[0].apply(x, y, t) - 0.5, self.args[1].apply(x, y, t) - 0.5) / (2 * np.pi) + 0.5
+			return (1 - np.cos(2 * np.pi * a)) / 2
 
 # Creates a pattern of length max_len
 def getPattern(max_len):
@@ -216,9 +222,9 @@ if __name__ == '__main__':
 	thePattern = []
 	for i in range(patterns):
 		# Get the depth
-		# d = depth(0.5, d=2)
+		d = depth(0.5, d=2)
 		# print(d)
-		d = 3
+		# d = 3
 
 		# Create and add the pattern
 		thePattern.append(getPattern(d))
