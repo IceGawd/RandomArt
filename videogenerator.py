@@ -26,7 +26,7 @@ pattern = [
 	["mix", 4, 3],		# lerp blend (weighted blend instead of average)
 	["abs", 4, 1],		# mirrored waves, great for ocean ripples
 	["rad", 12, 2], 
-	["ang", 0, 2]
+	["ang", 0, 2], 
 ]
 
 # The base parameters and frequencies
@@ -162,6 +162,27 @@ def moviepyColor(colorName):
 	rgb_values = colorName.replace("rgb(", "").replace(")", "").split(",")
 	return tuple(map(int, rgb_values))
 
+# A transformation going from 0 to 1 and 0 to 1 but pushing towards either 0 or 1
+def inter01Transformation(base, power01):
+	v = np.power(base, power01 / (1 - power01))
+
+	bad = (base > 1) | (base < 0)
+	if np.any(bad):
+		print("Invalid base:", base[bad])
+
+	bad = (power01 > 1) | (power01 < 0)
+	if np.any(bad):
+		print("Invalid power01:", power01[bad])
+
+	bad = (v > 1) | (v < 0)
+	if np.any(bad):
+		print("Invalid values:", v[bad])
+		
+	return v
+
+def safe01(a):
+	return (a + 1) / 257
+
 # Applies two patterns one every frame, an "up" pattern and a "down" pattern.
 # The "up" pattern is increasing in visibility while "down" decreases in visibility.
 # This is so that we can apply multiple patterns over a whole video so the output is not slow or boring with a single pattern and still have gradual change
@@ -193,15 +214,18 @@ def effect(get_frame, t):
 	frameUp   = (255 * thePattern[a - 1].apply(xx, yy, ttUp)).astype(np.uint8).transpose(1, 2, 0)
 
 	# Combine them based on opacity percents
-	frame = frameDown * (1 - percent) + frameUp * percent
+	# frame = frameDown * (1 - percent) + frameUp * percent
+	frame = frameDown
 
 	# print("downCount: " + str(downCount) + ", aDown: " + str(a) + ", %: " + str(1 - percent))
 	# print("upCount: " + str(upCount) + ", aUp: " + str(a - 1) + ", %: " + str(percent))
 
 	# Post-processing
-	frame[..., 0] = np.clip(frame[..., 0] * 1.2, 0, 255)  # boost red
-	frame[..., 1] = np.clip(frame[..., 1] * 0.9, 0, 255)  # soften green
-	frame[..., 2] = np.clip(frame[..., 2] * 0.6, 0, 255)  # reduce blue
+	frameCopy = frame.copy().astype(np.float32)
+
+	frame[..., 0] = 255 * inter01Transformation(safe01(frameCopy[..., 0]), safe01(frameCopy[..., 1]) * safe01(frameCopy[..., 2]))	# boost red
+	frame[..., 1] = 255 * inter01Transformation(safe01(frameCopy[..., 1]), safe01(frameCopy[..., 0]) * safe01(frameCopy[..., 2]))	# soften green
+	frame[..., 2] = 255 * inter01Transformation(safe01(frameCopy[..., 2]), safe01(frameCopy[..., 0]) * safe01(frameCopy[..., 1]))	# reduce blue
 
 	return frame
 
