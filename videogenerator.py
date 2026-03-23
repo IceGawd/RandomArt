@@ -2,15 +2,21 @@ from moviepy import TextClip, VideoFileClip, CompositeVideoClip, ColorClip, Imag
 import numpy as np
 import cv2
 import random
+import time
 
-height, width = 108, 192
+height, width = 1080, 1920
+seed = time.time()
 seed = 42
 
-duration = 5	# Duration of the animation in seconds
-fps = 10		# Frames per second
+duration = 30				# Duration of the animation in seconds
+fps = 25					# Frames per second
 
-halfstep = 1	# How many seconds should it take before a new pattern starts to show
+halfstep = 4 + 19 / 25		# How many seconds should it take before a new pattern starts to show
+transitionBuffer = 17 / 25	# Go from 95% of one pattern to 95% of another
+
+halfstep = halfstep + transitionBuffer
 step = 2 * halfstep
+
 
 patterns = int(duration / halfstep)
 
@@ -25,8 +31,9 @@ pattern = [
 	["smooth", 4, 1],	# smoothstep (soft contrast curve)
 	["mix", 4, 3],		# lerp blend (weighted blend instead of average)
 	["abs", 4, 1],		# mirrored waves, great for ocean ripples
-	["rad", 12, 2], 
+	["rad", 0, 2], 
 	["ang", 0, 2], 
+	["nop", 1, 1], 		# nothing
 ]
 
 # The base parameters and frequencies
@@ -37,7 +44,7 @@ baseInfo = [
 	["a", 2], 
 	["t", 2],
 	["0", 0], 
-	["1", 3]
+	["1", 4]
 ]
 
 # Calculate total frequencies for efficiency
@@ -119,15 +126,25 @@ class Pattern(object):
 		elif self.name == "ang":
 			a = np.arctan2(self.args[0].apply(x, y, t) - 0.5, self.args[1].apply(x, y, t) - 0.5) / (2 * np.pi) + 0.5
 			return (1 - np.cos(2 * np.pi * a)) / 2
+		elif self.name == "nop":
+			return self.args[0].apply(x, y, t)
 
 # Creates a pattern of length max_len
-def getPattern(max_len):
+def getPattern(max_len, firstbase=None):
 	global pattern, total
+
+	# Ensure all patterns have some temporal aspect
+	if (firstbase == None):
+		firstbase = True
 
 	if max_len == 0:
 		l = []
 		for i in range(3):
 			l.append(selector(baseInfo, bi)[0])
+
+		if firstbase:
+			l[int(3 * random.random())] = 't'
+			firstbase = False
 
 		return Pattern("base", l)
 	else:
@@ -135,7 +152,7 @@ def getPattern(max_len):
 
 		things = []
 		for a in range(choice[2]):
-			things.append(getPattern(max_len - 1))
+			things.append(getPattern(max_len - 1, firstbase))
 
 		return Pattern(choice[0], *things)
 
@@ -202,7 +219,21 @@ def effect(get_frame, t):
 
 	# Percentage opacity (percent is for "up", 1 - percent is for "down")
 	a = len(thePattern) - 1 - int(t / halfstep)
-	percent = (t % halfstep) / halfstep
+
+	phase = (t % halfstep) / halfstep  # 0 -> 1 over one pattern
+
+	if transitionBuffer is None:
+	    percent = phase  # old behavior (fully smooth)
+	else:
+	    transitionStart = 1 - (transitionBuffer / halfstep)
+
+	    if phase < transitionStart:
+	        percent = 0
+	    else:
+	        local_t = (phase - transitionStart) / (1 - transitionStart)
+
+	        # Smoothstep (fast but clean)
+	        percent = local_t * local_t * (3 - 2 * local_t)
 
 	# print("downCount: " + str(downCount))
 	# print("upCount: " + str(upCount))
@@ -214,8 +245,8 @@ def effect(get_frame, t):
 	frameUp   = (255 * thePattern[a - 1].apply(xx, yy, ttUp)).astype(np.uint8).transpose(1, 2, 0)
 
 	# Combine them based on opacity percents
-	# frame = frameDown * (1 - percent) + frameUp * percent
-	frame = frameDown
+	frame = frameDown * (1 - percent) + frameUp * percent
+	# frame = frameDown
 
 	# print("downCount: " + str(downCount) + ", aDown: " + str(a) + ", %: " + str(1 - percent))
 	# print("upCount: " + str(upCount) + ", aUp: " + str(a - 1) + ", %: " + str(percent))
@@ -223,9 +254,23 @@ def effect(get_frame, t):
 	# Post-processing
 	frameCopy = frame.copy().astype(np.float32)
 
-	frame[..., 0] = 255 * inter01Transformation(safe01(frameCopy[..., 0]), safe01(frameCopy[..., 1]) * safe01(frameCopy[..., 2]))	# boost red
-	frame[..., 1] = 255 * inter01Transformation(safe01(frameCopy[..., 1]), safe01(frameCopy[..., 0]) * safe01(frameCopy[..., 2]))	# soften green
-	frame[..., 2] = 255 * inter01Transformation(safe01(frameCopy[..., 2]), safe01(frameCopy[..., 0]) * safe01(frameCopy[..., 1]))	# reduce blue
+	# total = safe01(np.max(frameCopy))
+
+	# frame[..., 0] = 255 * inter01Transformation(safe01(frameCopy[..., 0]), total)
+	# frame[..., 1] = 255 * inter01Transformation(safe01(frameCopy[..., 1]), total)
+	# frame[..., 2] = 255 * inter01Transformation(safe01(frameCopy[..., 2]), total)
+
+	frame[..., 0] = frame[..., 0] / 5 + 204	# boost red
+	frame[..., 1] = frame[..., 1]			# soften green
+	frame[..., 2] = frame[..., 2] / 5		# reduce blue
+
+	# frame[..., 0] = 255				# boost red
+	# frame[..., 1] = frame[..., 1]	# soften green
+	# frame[..., 2] = 0				# reduce blue
+
+	# frame[..., 0] = 255 * inter01Transformation(safe01(frameCopy[..., 0]), safe01(frameCopy[..., 1]) * safe01(frameCopy[..., 2]))	# boost red
+	# frame[..., 1] = 255 * inter01Transformation(safe01(frameCopy[..., 1]), safe01(frameCopy[..., 0]) * safe01(frameCopy[..., 2]))	# soften green
+	# frame[..., 2] = 255 * inter01Transformation(safe01(frameCopy[..., 2]), safe01(frameCopy[..., 0]) * safe01(frameCopy[..., 1]))	# reduce blue
 
 	return frame
 
@@ -246,9 +291,9 @@ if __name__ == '__main__':
 	thePattern = []
 	for i in range(patterns):
 		# Get the depth
-		d = depth(0.5, d=2)
+		# d = depth(0.5, d=2)
 		# print(d)
-		# d = 3
+		d = 3
 
 		# Create and add the pattern
 		thePattern.append(getPattern(d))
